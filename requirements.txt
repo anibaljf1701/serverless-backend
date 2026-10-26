@@ -1,0 +1,5 @@
+fastapi==0.103.1
+pydantic==2.3.0
+email-validator==2.2.0
+mangum==0.17.0
+boto3==1.28.44
