@@ -2,6 +2,11 @@ AWSTemplateFormatVersion: "2010-09-09"
 Transform: AWS::Serverless-2016-10-31
 Description: Public serverless REST API backed by DynamoDB.
 
+Parameters:
+  AllowedOrigin:
+    Type: String
+    Description: Single web origin allowed by API Gateway CORS.
+
 Globals:
   Function:
     Runtime: python3.12
@@ -9,18 +14,25 @@ Globals:
     MemorySize: 256
     Environment:
       Variables:
-        ITEMS_TABLE: !Ref ItemsTable
+        ITEMS_TABLE:
+          Ref: ItemsTable
 
 Resources:
   PublicApi:
     Type: AWS::Serverless::Api
     Properties:
       StageName: prod
-      EndpointConfiguration: REGIONAL
+      EndpointConfiguration:
+        Type: REGIONAL
       Cors:
-        AllowOrigin: "'*'"
-        AllowHeaders: "'Content-Type,Authorization'"
+        AllowOrigin:
+          Fn::Sub: "'${AllowedOrigin}'"
+        AllowHeaders: "'Content-Type,Authorization,X-Api-Key'"
         AllowMethods: "'GET,POST,PUT,PATCH,DELETE,OPTIONS'"
+      Auth:
+        UsagePlan:
+          CreateUsagePlan: PER_API
+          Description: API key usage plan for write operations
 
   ApiFunction:
     Type: AWS::Serverless::Function
@@ -29,14 +41,73 @@ Resources:
       Handler: app.handler
       Policies:
         - DynamoDBCrudPolicy:
-            TableName: !Ref ItemsTable
+            TableName:
+              Ref: ItemsTable
       Events:
-        ApiProxy:
+        Health:
           Type: Api
           Properties:
-            RestApiId: !Ref PublicApi
-            Path: /{proxy+}
-            Method: ANY
+            RestApiId:
+              Ref: PublicApi
+            Path: /health
+            Method: GET
+        HealthTypoAlias:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: PublicApi
+            Path: /healts
+            Method: GET
+        ListItems:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: PublicApi
+            Path: /items
+            Method: GET
+        CreateItem:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: PublicApi
+            Path: /items
+            Method: POST
+            Auth:
+              ApiKeyRequired: true
+        GetItem:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: PublicApi
+            Path: /items/{item_id}
+            Method: GET
+        ReplaceItem:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: PublicApi
+            Path: /items/{item_id}
+            Method: PUT
+            Auth:
+              ApiKeyRequired: true
+        PatchItem:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: PublicApi
+            Path: /items/{item_id}
+            Method: PATCH
+            Auth:
+              ApiKeyRequired: true
+        DeleteItem:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: PublicApi
+            Path: /items/{item_id}
+            Method: DELETE
+            Auth:
+              ApiKeyRequired: true
 
   ItemsTable:
     Type: AWS::DynamoDB::Table
@@ -52,4 +123,5 @@ Resources:
 Outputs:
   ApiUrl:
     Description: Public base URL for the REST API
-    Value: !Sub "https://${PublicApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}/prod/"
+    Value:
+      Fn::Sub: "https://${PublicApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}/prod/"
