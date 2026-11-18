@@ -48,7 +48,19 @@ La plantilla está en [template.yaml](template.yaml). Define una `AWS::Serverles
 
 ```sh
 pip install -r requirements-dev.txt
+ruff check .
 pytest
+sam validate --lint
+sam build
 ```
+
+## Integración continua
+
+El workflow `.github/workflows/ci.yml` se ejecuta en cada push y pull request. GitHub Actions configura Python 3.12, instala las dependencias de desarrollo y verifica:
+
+- estilo y errores comunes con Ruff;
+- la suite de pruebas con Pytest;
+- la validez del template SAM;
+- que la aplicación pueda construirse con `sam build`.
 
 FastAPI genera OpenAPI y Swagger UI en `/openapi.json` y `/docs` al ejecutar la aplicación localmente. El Gateway desplegado solo expone las rutas y métodos declarados en `template.yaml`; la documentación no se publica allí.
