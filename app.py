@@ -1,4 +1,5 @@
 import base64
+import binascii
 import json
 import os
 from functools import lru_cache
@@ -50,7 +51,7 @@ def decode_token(token: str | None) -> dict[str, Any] | None:
         padded = token + "=" * (-len(token) % 4)
         decoded = base64.b64decode(padded, altchars=b"-_", validate=True)
         key = json.loads(decoded)
-    except (ValueError, json.JSONDecodeError, UnicodeDecodeError) as error:
+    except (ValueError, binascii.Error, json.JSONDecodeError, UnicodeDecodeError) as error:
         raise HTTPException(status_code=400, detail="Invalid next_token") from error
     if not isinstance(key, dict) or not key:
         raise HTTPException(status_code=400, detail="Invalid next_token")

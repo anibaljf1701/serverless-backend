@@ -90,3 +90,9 @@ def test_missing_item_returns_not_found(client: TestClient) -> None:
     assert client.put("/items/missing", json={}).status_code == 404
     assert client.patch("/items/missing", json={}).status_code == 404
     assert client.delete("/items/missing").status_code == 404
+
+
+def test_invalid_next_token_returns_bad_request(client: TestClient) -> None:
+    response = client.get("/items", params={"next_token": "%%%"})
+    assert response.status_code == 400
+    assert response.json() == {"detail": "Invalid next_token"}
