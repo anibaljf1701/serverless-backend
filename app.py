@@ -64,11 +64,13 @@ class DynamoItemStore:
 
     @staticmethod
     def _record(item_id: str, data: dict[str, Any]) -> dict[str, Any]:
-        return {"id": item_id, "data": json.dumps(data, separators=(",", ":"))}
+        return {"id": item_id, "data": data}
 
     @staticmethod
     def _decode(record: dict[str, Any]) -> dict[str, Any]:
-        return {"id": record["id"], "data": json.loads(record["data"])}
+        stored_data = record["data"]
+        data = json.loads(stored_data) if isinstance(stored_data, str) else stored_data
+        return {"id": record["id"], "data": data}
 
     def create(self, item_id: str, data: dict[str, Any]) -> dict[str, Any]:
         try:
@@ -110,23 +112,38 @@ class DynamoItemStore:
         return {"id": item_id, "data": data}
 
     def patch(self, item_id: str, changes: dict[str, Any]) -> dict[str, Any] | None:
-        current = self.get(item_id)
-        if current is None:
-            return None
-        data = {**current["data"], **changes}
+        expression_names = {"#data": "data"}
+        expression_values: dict[str, Any] = {}
+
+        if changes:
+            set_parts: list[str] = []
+            for index, (key, value) in enumerate(changes.items(), start=1):
+                field_name = f"#field{index}"
+                field_value = f":value{index}"
+                expression_names[field_name] = key
+                expression_values[field_value] = value
+                set_parts.append(f"#data.{field_name} = {field_value}")
+            update_expression = "SET " + ", ".join(set_parts)
+        else:
+            update_expression = "SET #data = if_not_exists(#data, :empty)"
+            expression_values[":empty"] = {}
+
         try:
-            self.table.update_item(
+            result = self.table.update_item(
                 Key={"id": item_id},
-                UpdateExpression="SET #data = :data",
+                UpdateExpression=update_expression,
                 ConditionExpression="attribute_exists(id)",
-                ExpressionAttributeNames={"#data": "data"},
-                ExpressionAttributeValues={":data": json.dumps(data, separators=(",", ":"))},
+                ExpressionAttributeNames=expression_names,
+                ExpressionAttributeValues=expression_values,
+                ReturnValues="ALL_NEW",
             )
         except ClientError as error:
             if error.response["Error"]["Code"] == "ConditionalCheckFailedException":
                 return None
             raise
-        return {"id": item_id, "data": data}
+
+        record = result.get("Attributes")
+        return self._decode(record) if record else None
 
     def delete(self, item_id: str) -> bool:
         try:

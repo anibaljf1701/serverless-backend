@@ -1,10 +1,12 @@
 from collections.abc import Generator
 from typing import Any
+from unittest.mock import Mock
 
 import pytest
+from botocore.exceptions import ClientError
 from fastapi.testclient import TestClient
 
-from app import app, get_store
+from app import DynamoItemStore, app, decode_token, get_store
 
 
 class MemoryItemStore:
@@ -24,6 +26,7 @@ class MemoryItemStore:
         limit: int,
         _next_token: str | None,
     ) -> tuple[list[dict[str, Any]], str | None]:
+        decode_token(_next_token)
         return list(self.items.values())[:limit], None
 
     def replace(self, item_id: str, data: dict[str, Any]) -> dict[str, Any] | None:
@@ -96,3 +99,38 @@ def test_invalid_next_token_returns_bad_request(client: TestClient) -> None:
     response = client.get("/items", params={"next_token": "%%%"})
     assert response.status_code == 400
     assert response.json() == {"detail": "Invalid next_token"}
+
+
+def test_dynamo_patch_uses_atomic_update_expression() -> None:
+    table = Mock()
+    table.update_item.return_value = {
+        "Attributes": {"id": "item-1", "data": {"name": "Updated", "quantity": 2}}
+    }
+    store = DynamoItemStore(table)
+
+    result = store.patch("item-1", {"name": "Updated", "quantity": 2})
+
+    assert result == {"id": "item-1", "data": {"name": "Updated", "quantity": 2}}
+    table.get_item.assert_not_called()
+    update_args = table.update_item.call_args.kwargs
+    assert update_args["UpdateExpression"] == (
+        "SET #data.#field1 = :value1, #data.#field2 = :value2"
+    )
+    assert update_args["ExpressionAttributeNames"] == {
+        "#data": "data",
+        "#field1": "name",
+        "#field2": "quantity",
+    }
+    assert update_args["ExpressionAttributeValues"] == {
+        ":value1": "Updated",
+        ":value2": 2,
+    }
+
+
+def test_dynamo_patch_missing_item_returns_none() -> None:
+    table = Mock()
+    table.update_item.side_effect = ClientError(
+        {"Error": {"Code": "ConditionalCheckFailedException"}}, "UpdateItem"
+    )
+
+    assert DynamoItemStore(table).patch("missing", {"name": "Updated"}) is None
